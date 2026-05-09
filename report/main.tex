@@ -386,7 +386,7 @@ those models compared to these toy datasets?
 From Part 2, $v$-prediction struggles at high dimensions because the target
 $v = \varepsilon - x$ is dominated by Gaussian noise — the data only lives
 on a 2D manifold but the noise spans the full ambient dimension. In
-SD3~\cite{esser2024sd3} and FLUX~\cite{flux2025kontext}, this is not an
+Stable Diffusion 3~\cite{esser2024sd3} and FLUX~\cite{flux2025kontext}, this is not an
 issue because the generative process operates on a compressed latent
 space produced by a pretrained autoencoder~\cite{rombach2022ldm}.
 The autoencoder compresses the data such that the intrinsic rank of the
@@ -481,7 +481,7 @@ For single-step generation: $z_0 = z_1 - 1 \cdot u(z_1, 1, 1)$.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{figures/part4_comparison_swiss_roll.png}
+  \includegraphics[width=0.85\linewidth]{figures/part4_comparison_swiss_roll.png}
   \caption{Part 4.2 – Side-by-side: standard flow matching ($x$-pred from
   Part 2) vs.\ MeanFlow on \texttt{swiss\_roll} ($D=32$), at $1, 2, 5$ steps.}
   \label{fig:part4_cmp_swiss}
@@ -489,7 +489,7 @@ For single-step generation: $z_0 = z_1 - 1 \cdot u(z_1, 1, 1)$.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{figures/part4_comparison_gaussians.png}
+  \includegraphics[width=0.85\linewidth]{figures/part4_comparison_gaussians.png}
   \caption{Part 4.2 – Side-by-side: standard flow matching vs.\ MeanFlow on
   \texttt{gaussians} ($D=32$), at $1, 2, 5$ steps.}
   \label{fig:part4_cmp_gauss}
@@ -497,7 +497,7 @@ For single-step generation: $z_0 = z_1 - 1 \cdot u(z_1, 1, 1)$.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{figures/part4_comparison_circles.png}
+  \includegraphics[width=0.85\linewidth]{figures/part4_comparison_circles.png}
   \caption{Part 4.2 – Side-by-side: standard flow matching vs.\ MeanFlow on
   \texttt{circles} ($D=32$), at $1, 2, 5$ steps.}
   \label{fig:part4_cmp_circles}
