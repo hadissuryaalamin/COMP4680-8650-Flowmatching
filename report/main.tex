@@ -164,10 +164,10 @@ $\texttt{ds.to\_2d}(s) = s \cdot P^{\top}$.
 
 \newpage
 % =============================================================================
-\section{Part 1 – Warm-up (10 marks)}
+\section{Part 1 – Warm-up}
 % =============================================================================
 
-\subsection{Data Visualization (3 marks)}
+\subsection{Data Visualization}
 
 \textbf{Task:} Load the \texttt{swiss\_roll}, \texttt{gaussians}, and \texttt{circles}
 datasets at $D=2$ (original) and $D=32$ (projected back to 2D using
@@ -183,7 +183,7 @@ datasets at $D=2$ (original) and $D=32$ (projected back to 2D using
 \end{figure}
 
 % =============================================================================
-\subsection{v-Prediction Flow Matching at $D=2$ (7 marks)}
+\subsection{v-Prediction Flow Matching at $D=2$}
 
 \textbf{Hyperparameters}:
 \begin{center}
@@ -212,10 +212,10 @@ datasets at $D=2$ (original) and $D=32$ (projected back to 2D using
 \end{figure}
 
 % =============================================================================
-\section{Part 2 – Flow Matching Parameterization (34 marks)}
+\section{Part 2 – Flow Matching Parameterization}
 % =============================================================================
 
-\subsection{Derivation: Converting between Prediction Types (4 marks)}
+\subsection{Derivation: Converting between Prediction Types}
 
 Starting from the linear interpolation forward process:
 \[
@@ -247,7 +247,7 @@ These conversions allow us to train with any combination of prediction type
 ($x$ or $v$) and loss space ($x$-loss or $v$-loss).
 
 % ──────────────────────────────────────────────────────────────────────────────
-\subsection{Reproducing the Paper's Finding (18 marks)}
+\subsection{Reproducing the Paper's Finding}
 
 All four prediction/loss combinations were trained on three datasets
 ($\texttt{swiss\_roll}$, $\texttt{gaussians}$, $\texttt{circles}$) and three
@@ -278,14 +278,14 @@ dimensions ($D \in \{2, 8, 32\}$), giving 36 experiments in total.
 % ──────────────────────────────────────────────────────────────────────────────
 \subsection{Questions}
 
-\textbf{Q1 (3 marks).}
+\textbf{Q1.}
 Which prediction type scales successfully to high ambient dimensions?
 At what dimension do the other prediction types begin to fail visibly?
 
 In high dimensions, only $x$-prediction produces good samples across all datasets.
 $v$-prediction begins to fail visibly at $D=32$.
 
-\textbf{Q2 (3 marks).}
+\textbf{Q2.}
 Does the choice of loss space ($x$-loss, $v$-loss) affect which prediction
 types succeed or fail? What does this tell you about what determines generation
 quality?
@@ -295,7 +295,7 @@ and loss spaces differ, the effective loss is implicitly reweighted by $t^2$ or 
 However, $v$-prediction fails at $D=32$ regardless of loss space, confirming
 that \textbf{prediction type} is the dominant factor determining generation quality.
 
-\textbf{Q3 (6 marks).}
+\textbf{Q3.}
 Explain why the successful prediction type works at high $D$ while the others
 do not. Consider the nature of each prediction target and the rank of each
 target relative to the ambient dimension.
@@ -307,7 +307,7 @@ Because of this, $x$-prediction succeeds at high $D$ — its target $x$ lies on 
 In contrast, $v$-prediction must learn $v = \varepsilon - x$, where $\varepsilon \sim \mathcal{N}(0, I_D)$ is Gaussian noise that spreads across all $D$ dimensions. The noise term dominates and forces the model to learn a full 32D target, even though the underlying data is only 2D. This is why $v$-prediction fails as $D$ grows.
 
 % =============================================================================
-\section{Part 3 – Can We Rescue v-Prediction? (25 marks)}
+\section{Part 3 – Can We Rescue v-Prediction?}
 % =============================================================================
 
 From Part 2, v-prediction fails at high dimensions because the data lives on a 2D manifold
@@ -331,7 +331,7 @@ for convergence, the proposed solution is to increase model capacity via:
 
 \subsection{Questions}
 
-\textbf{Q1 (2 marks).}
+\textbf{Q1.}
 Based on your experiments, is v-prediction's failure fundamental or can it be
 overcome?  Do your findings support or contradict your observations from Part 2?
 
@@ -343,7 +343,7 @@ whose target stays rank-2 regardless of $D$.
 % capacity, the model can learn the full complexity of the noise-dominated velocity field in high dimensions 
 % ($D=32$), confirming the failure is a capacity challenge, not an inherent limitation of the parameterization.
 
-\textbf{Q2 (3 marks).}
+\textbf{Q2.}
 What approach(es) did you try?  Compare the compute cost between your approach
 and the default x-prediction setup to achieve similar sample quality at $D=32$.
 
@@ -360,7 +360,7 @@ Both successful approaches come at a significant compute cost compared to defaul
   \label{fig:part3_q3}
 \end{figure}
 
-\textbf{Q3 (3 marks).}
+\textbf{Q3.}
 Compare how x-prediction and v-prediction respond to your changes.  Do they
 behave the same way?  Explain why or why not, considering what each
 parameterisation must learn as a function of the ambient dimension $D$.
@@ -378,7 +378,7 @@ $v = \varepsilon - x$ has full rank $D$, requiring a larger model to represent t
 % At $D=32$, the model must represent a full 32-dimensional function even though the data is only 2D
 % — which is why extra capacity is necessary for v-prediction but redundant for x-prediction.
 
-\textbf{Q4 (7 marks).}
+\textbf{Q4.}
 In practice, v-prediction is used successfully in real image generation systems
 such as Stable Diffusion 3 and FLUX.  Why might the situation be different for
 those models compared to these toy datasets?
@@ -394,10 +394,10 @@ latent space is close to its ambient dimension, so the noise no
 longer dominates the velocity target and $v$-prediction becomes tractable.
 
 % =============================================================================
-\section{Part 4 – One-Step Generation (31 marks)}
+\section{Part 4 – One-Step Generation}
 % =============================================================================
 
-\subsection{Sampling Efficiency (3 marks)}
+\subsection{Sampling Efficiency}
 
 Using the best model from Part 2 ($x$-prediction, $v$-loss, $D=32$), we
 evaluate how sample quality degrades as the number of Euler integration steps
@@ -428,7 +428,7 @@ decreases ($1, 2, 5, 10, 20, 50, 100, 200$ steps) across all three datasets.
 \end{figure}
 
 % ──────────────────────────────────────────────────────────────────────────────
-\subsection{MeanFlow (9 marks)}
+\subsection{MeanFlow}
 
 \textbf{Architecture.}
 The MeanFlow model $u(z, t, h)$ extends the base MLP with an additional
@@ -506,7 +506,7 @@ For single-step generation: $z_0 = z_1 - 1 \cdot u(z_1, 1, 1)$.
 % ──────────────────────────────────────────────────────────────────────────────
 \subsection{Questions}
 
-\textbf{Q1 (2 marks).}
+\textbf{Q1.}
 Why did you choose this prediction type for MeanFlow?
 Connect your answer to your findings from Part 2.
 
@@ -516,7 +516,7 @@ $u_{\text{tgt}}$ via a self-referential JVP; with $x$-prediction the
 model output is low-rank and well-conditioned, producing stable and
 consistent targets throughout training.
 
-\textbf{Q2 (4 marks).}
+\textbf{Q2.}
 In your own words, describe the core idea behind MeanFlow.  What does the
 model learn that is different from standard flow matching?  Why does this
 enable one-step generation?
@@ -531,7 +531,7 @@ Euler steps. Setting $t=1$, $r=0$, and $h=1$ at inference gives
 one-step generation: $z_0 = z_1 - u(z_1, 1, 1)$, jumping directly
 from pure noise to data in a single forward pass.
 
-\textbf{Q3 (3 marks).}
+\textbf{Q3.}
 MeanFlow splits training between $h=0$ (standard flow matching) and $h>0$
 (mean velocity).  Why is the $h=0$ portion needed?
 
@@ -545,7 +545,7 @@ the training a stable reference point, so the $h>0$ consistency
 loss has something reliable to build on.
 
 
-\textbf{Q4 (3 marks).}
+\textbf{Q4.}
 Compare the training cost of MeanFlow to standard flow matching.  Why is
 MeanFlow harder to train?  What is the computational overhead of the JVP
 operation per training step?
@@ -562,7 +562,7 @@ h \cdot \frac{du}{dt}$. The overhead of the JVP is approximately two
 additional forward passes per step, making MeanFlow roughly $2\times$
 more expensive per training step compared to standard flow matching.
 
-\textbf{Q5 (7 marks).}
+\textbf{Q5.}
 Compare the MeanFlow-generated samples against the ground truth across all
 three datasets.  Do you observe any differences or artefacts, particularly on
 the \texttt{gaussians} dataset?  Describe what you see and explain why it
