@@ -12,6 +12,8 @@
 \usepackage{float}
 \usepackage{enumitem}
 \usepackage{parskip}
+\usepackage[style=numeric]{biblatex}
+\addbibresource{references.bib}
 
 % ── Hyperlink colours ────────────────────────────────────────────────────────
 \hypersetup{
@@ -381,7 +383,15 @@ In practice, v-prediction is used successfully in real image generation systems
 such as Stable Diffusion 3 and FLUX.  Why might the situation be different for
 those models compared to these toy datasets?
 
-Based on Q2, $v$-prediction struggles because the target $v = \varepsilon - x$ is dominated by full-rank Gaussian noise, forcing the model to learn across all $D$ dimensions even though the actual data structure is low-rank. In real models like SD3/FLUX, this is not an issue because diffusion happens in a structured latent space produced by a pretrained encoder (e.g., DINOv2). The encoder compresses the input into a semantically rich representation with much lower effective rank, so the noise added during diffusion does not span the full ambient dimension. This makes $v$-prediction tractable even at high dimensions.
+From Part 2, $v$-prediction struggles at high dimensions because the target
+$v = \varepsilon - x$ is dominated by Gaussian noise — the data only lives
+on a 2D manifold but the noise spans the full ambient dimension. In
+SD3~\cite{esser2024sd3} and FLUX~\cite{flux2025kontext}, this is not an
+issue because the generative process operates on a compressed latent
+space produced by a pretrained autoencoder~\cite{rombach2022ldm}.
+The autoencoder compresses the data such that the intrinsic rank of the
+latent space is close to its ambient dimension, so the noise no
+longer dominates the velocity target and $v$-prediction becomes tractable.
 
 % =============================================================================
 \section{Part 4 – One-Step Generation (31 marks)}
@@ -574,4 +584,6 @@ that start between modes, causing them to land in the gaps rather
 than on a mode.
 
 % =============================================================================
+\printbibliography
+
 \end{document}
