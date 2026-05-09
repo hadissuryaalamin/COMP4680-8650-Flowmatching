@@ -46,17 +46,17 @@
   \large COMP4680/8650: Advanced Topics in Machine Learning
 }
 \author{Hadis Amin - u8050066}
-\date{\today}
+\date{}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \begin{document}
 \maketitle
 
 % =============================================================================
-\section{Implementation Approach and Experiment Setup}
+% \section{Implementation Approach and Experiment Setup}
 % =============================================================================
 
-\subsection{Implementation Approach}
+\subsection*{Implementation Approach}
 
 In this section, we organise the code into reusable building blocks shared across all four parts:
 
@@ -116,7 +116,7 @@ backpropagation.
 Stability: $\dfrac{du}{dt}$ is clamped element-wise to $[-10, 10]$ and the
 total gradient norm is clipped to $1.0$.
 
-\subsection{Experiment Setup}
+\subsection*{Experiment Setup}
 
 \textbf{Datasets.} Three 2D toy distributions provided by
 \texttt{src/dataloader.py}: \texttt{swiss\_roll}, \texttt{gaussians},
@@ -158,7 +158,7 @@ $\texttt{ds.to\_2d}(s) = s \cdot P^{\top}$.
         $D=32$ and sample at step counts $\{1, 2, 5, 10, 20, 50, 100, 200\}$.
   \item \textbf{Part 4.2:} MeanFlow trained at $D=32$ on all three datasets
         with $x$-pred + $v$-loss, $\texttt{fm\_ratio}=0.7$, hidden 256,
-        25K steps. Evaluated at step counts $\{1, 2, 5, 10\}$ against the
+        25K steps. Evaluated at step counts $\{1, 2, 5\}$ against the
         Part 2 baseline.
 \end{itemize}
 
