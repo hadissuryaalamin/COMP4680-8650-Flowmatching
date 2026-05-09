@@ -11,7 +11,8 @@ wheels/
 data
 checkpoints*
 results
-report/
+report/*
+!report/main.tex
 __pycache__/
 *.pt
 *.png

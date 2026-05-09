@@ -1,0 +1,577 @@
+\documentclass[11pt, a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{parskip}
+
+% ── Hyperlink colours ────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+  citecolor=blue!60!black,
+}
+
+% ── Placeholder macro ────────────────────────────────────────────────────────
+% Usage: \placeholder{width}{height}{caption text}
+\newcommand{\placeholder}[3]{%
+  \begin{figure}[H]
+    \centering
+    \fbox{\rule{0pt}{#2}\parbox{#1}{\centering\textcolor{gray}{[Figure placeholder: #3]}}}
+    \caption{#3}
+  \end{figure}%
+}
+
+% ── Answer box ───────────────────────────────────────────────────────────────
+\newcommand{\answerbox}[1][6cm]{%
+  \vspace{0.3em}
+  \noindent\fbox{\parbox{\linewidth}{\vspace{#1}}}
+  \vspace{0.5em}
+}
+
+% ── Title ────────────────────────────────────────────────────────────────────
+\title{
+  \textbf{Flow Matching}\\[0.3em]
+  \large COMP4680/8650: Advanced Topics in Machine Learning
+}
+\author{Hadis Amin - u8050066}
+\date{\today}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+\maketitle
+
+% =============================================================================
+\section{Implementation Approach and Experiment Setup}
+% =============================================================================
+
+\subsection{Implementation Approach}
+
+In this section, we organise the code into reusable building blocks shared across all four parts:
+
+\textbf{Model architectures.} Two MLP variants are defined:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{FlowMLP} (Parts 1--3): takes $(z_t, t)$, encodes $t$ with a
+        128-dim sinusoidal embedding (DiT-style), concatenates $[z_t;\, e_t] \in \mathbb{R}^{D+128}$,
+        then passes through 5 hidden layers (Linear $\to$ ReLU, 256 units) and
+        a final linear layer producing a $D$-dimensional output. The output is
+        interpreted as either $\hat{x}$ or $\hat{v}$ depending on the
+        prediction type.
+  \item \texttt{MeanFlowMLP} (Part 4): extends \texttt{FlowMLP} with a second
+        sinusoidal embedding for the horizon $h = t - r$. The input becomes
+        $[z_t;\, e_t;\, e_h] \in \mathbb{R}^{D+256}$.
+\end{itemize}
+
+\textbf{Forward process and conversions.} We use linear interpolation
+$z_t = (1-t)x + t\varepsilon$ with $t$ clipped to $[0.1, 1]$, for numerical 
+stability in the conversion formulas. Helper functions implement all 
+conversions derived from
+$z_t = (1-t)x + t\varepsilon$ and $v = \varepsilon - x$:
+\[
+  v = \varepsilon - x, \qquad x = z_t - t v, \qquad v = \frac{z_t - x}{t}.
+\]
+These let us train and evaluate any combination of prediction type and loss
+space.
+
+\textbf{Flow matching training (Parts 1--3).} Each training step samples a
+batch of $x$, draws $\varepsilon \sim \mathcal{N}(0, I)$ and
+$t \sim \text{Uniform}(\epsilon, 1)$ with $\epsilon = 0.01$, forms $z_t$, and computes the
+loss in the chosen space (using the conversion helpers where the prediction
+and loss spaces differ).
+
+\textbf{Sampling.} Standard flow matching uses Euler ODE integration from
+$t=1$ to $t=0$ with negative step size \[
+  \Delta t = -\tfrac{1}{N}, \qquad
+  z \leftarrow z + \hat{v}\,\Delta t.
+\]
+For $x$-prediction models we convert before stepping. MeanFlow uses the direct
+update \mbox{$z_r = z_t - h \cdot \hat{u}$}, where $\hat{u}$ is the predicted mean
+velocity over horizon $h$.
+
+\textbf{MeanFlow training (Part 4).} At each step we sample $t$ and $r$ 
+uniformly following the same clipping as Parts 1--3 ($\epsilon = 0.01$).
+With probability \texttt{fm\_ratio} $= 0.7$ we set $r \leftarrow t$
+(so $h = 0$), reducing the target to the standard flow-matching anchor
+$v_{\mathrm{gt}}$; otherwise $h = t - r > 0$ and the consistency target
+applies:
+\[
+  u_{\mathrm{tgt}} = v_{\mathrm{gt}} - h \cdot \frac{du}{dt},
+  \qquad
+  \frac{du}{dt} = \frac{\partial u}{\partial (z,t)}(z_t, t, 0)\cdot(v_{\mathrm{gt}},\,1),
+\]
+computed via \texttt{torch.func.jvp} (forward-mode autodiff).
+The target $u_{\text{tgt}}$ is treated as a fixed constant during
+backpropagation.
+Stability: $\dfrac{du}{dt}$ is clamped element-wise to $[-10, 10]$ and the
+total gradient norm is clipped to $1.0$.
+
+\subsection{Experiment Setup}
+
+\textbf{Datasets.} Three 2D toy distributions provided by
+\texttt{src/dataloader.py}: \texttt{swiss\_roll}, \texttt{gaussians},
+and \texttt{circles}. Each is multiplied by a random orthogonal projection
+$P \in \mathbb{R}^{2 \times D}$ to produce $D$-dimensional samples for
+$D \in \{2, 8, 32\}$. The intrinsic dimensionality is always 2; only the
+ambient dimension changes. Back-projection for visualization uses
+$\texttt{ds.to\_2d}(s) = s \cdot P^{\top}$.
+
+\textbf{Common hyperparameters} (used in Parts 1--3 unless stated otherwise):
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Hyperparameter & Value \\
+  \midrule
+  Architecture       & 5-layer MLP, 256 hidden, ReLU \\
+  Time embedding     & Sinusoidal, 128-dim (DiT-style) \\
+  Optimiser          & Adam, $\mathrm{lr} = 10^{-3}$ \\
+  Batch size         & 1024 \\
+  Training steps     & 25{,}000 \\
+  $t$ clipping       & $\epsilon = 0.01$ \\
+  Sampling           & Euler ODE, 50 steps (default) \\
+  Sample count       & 2000 per visualisation \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Per-part variations.}
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Part 1.2:} v-prediction + v-loss at $D=2$ on all three
+        datasets, common hyperparameters.
+  \item \textbf{Part 2.2:} full $4 \times 3 \times 3 = 36$ grid (4
+        prediction/loss combos $\times$ 3 ambient dims $\{2,8,32\}$ $\times$
+        3 datasets). Models saved to \texttt{models/}.
+  \item \textbf{Part 3:} rescue strategies for v-prediction at $D=32$ on
+        \texttt{swiss\_roll}. Variants tested: hidden size $256 \to 512$,
+        training steps $25\text{K} \to 100\text{K}$.
+  \item \textbf{Part 4.1:} reuse the Part 2 $x$-pred + $v$-loss model at
+        $D=32$ and sample at step counts $\{1, 2, 5, 10, 20, 50, 100, 200\}$.
+  \item \textbf{Part 4.2:} MeanFlow trained at $D=32$ on all three datasets
+        with $x$-pred + $v$-loss, $\texttt{fm\_ratio}=0.7$, hidden 256,
+        25K steps. Evaluated at step counts $\{1, 2, 5, 10\}$ against the
+        Part 2 baseline.
+\end{itemize}
+
+\newpage
+% =============================================================================
+\section{Part 1 – Warm-up (10 marks)}
+% =============================================================================
+
+\subsection{Data Visualization (3 marks)}
+
+\textbf{Task:} Load the \texttt{swiss\_roll}, \texttt{gaussians}, and \texttt{circles}
+datasets at $D=2$ (original) and $D=32$ (projected back to 2D using
+\texttt{to\_2d()}), and confirm that the structure is preserved.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part1_visualization.png}
+  \caption{Data visualization at $D=2$ (original) and $D=32$ (projected back
+  to 2D). Each column is one dataset; the bottom row confirms the intrinsic
+  structure is preserved after projection.}
+  \label{fig:part1_vis}
+\end{figure}
+
+% =============================================================================
+\subsection{v-Prediction Flow Matching at $D=2$ (7 marks)}
+
+\textbf{Hyperparameters}:
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Hyperparameter & Value \\
+  \midrule
+  Architecture       & 5-layer MLP, 256 hidden, ReLU \\
+  Time embedding     & Sinusoidal, 128-dim (DiT-style) \\
+  Optimiser          & Adam, $\mathrm{lr} = 10^{-3}$ \\
+  Batch size         & 1024 \\
+  Training steps     & 25{,}000 \\
+  $t$ clipping       & $\epsilon = 0.01$ \\
+  Sampling           & Euler ODE, 50 steps (default) \\
+  Sample count       & 2000 per visualisation \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part1_generated.png}
+  \caption{Part 1.2 – Generated samples vs.\ ground truth for all three
+  datasets at $D=2$ using v-prediction (v-loss).}
+  \label{fig:part1_gen}
+\end{figure}
+
+% =============================================================================
+\section{Part 2 – Flow Matching Parameterization (34 marks)}
+% =============================================================================
+
+\subsection{Derivation: Converting between Prediction Types (4 marks)}
+
+Starting from the linear interpolation forward process:
+\[
+  z_t = (1-t)\,x + t\,\varepsilon, \qquad t \in [0,1], \quad
+  \varepsilon \sim \mathcal{N}(0, I)
+\]
+where the velocity is defined as $v = \varepsilon - x$.
+
+\textbf{From $x$-prediction to $v$:}
+Solving for $\varepsilon$ gives $\varepsilon = \dfrac{z_t - (1-t)x}{t}$.
+Substituting into $v = \varepsilon - x$:
+\[
+  v = \frac{z_t - (1-t)x}{t} - x
+    = \frac{z_t - (1-t)x - tx}{t}
+    = \boxed{\frac{z_t - x}{t}}
+\]
+
+\textbf{From $v$-prediction to $x$:}
+Since $\varepsilon = v + x$, substituting into the forward process:
+\[
+  z_t = (1-t)x + t\,\varepsilon = (1-t)x + t(v + x) = x + tv
+\]
+Rearranging:
+\[
+  \boxed{x = z_t - t\,v}
+\]
+
+These conversions allow us to train with any combination of prediction type
+($x$ or $v$) and loss space ($x$-loss or $v$-loss).
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Reproducing the Paper's Finding (18 marks)}
+
+All four prediction/loss combinations were trained on three datasets
+($\texttt{swiss\_roll}$, $\texttt{gaussians}$, $\texttt{circles}$) and three
+dimensions ($D \in \{2, 8, 32\}$), giving 36 experiments in total.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part2_swiss_roll.png}
+  \caption{Part 2 – \texttt{swiss\_roll}: generated samples for all 4
+  prediction/loss combinations across $D \in \{2,8,32\}$.}
+  \label{fig:part2_swiss}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part2_gaussians.png}
+  \caption{Part 2 – \texttt{gaussians}.}
+  \label{fig:part2_gauss}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part2_circles.png}
+  \caption{Part 2 – \texttt{circles}.}
+  \label{fig:part2_circles}
+\end{figure}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Questions}
+
+\textbf{Q1 (3 marks).}
+Which prediction type scales successfully to high ambient dimensions?
+At what dimension do the other prediction types begin to fail visibly?
+
+In high dimensions, only $x$-prediction produces good samples across all datasets.
+$v$-prediction begins to fail visibly at $D=32$.
+
+\textbf{Q2 (3 marks).}
+Does the choice of loss space ($x$-loss, $v$-loss) affect which prediction
+types succeed or fail? What does this tell you about what determines generation
+quality?
+
+No. The choice of loss space has only a minor effect on generation quality. When prediction 
+and loss spaces differ, the effective loss is implicitly reweighted by $t^2$ or $\dfrac{1}{t^2}$. 
+However, $v$-prediction fails at $D=32$ regardless of loss space, confirming
+that \textbf{prediction type} is the dominant factor determining generation quality.
+
+\textbf{Q3 (6 marks).}
+Explain why the successful prediction type works at high $D$ while the others
+do not. Consider the nature of each prediction target and the rank of each
+target relative to the ambient dimension.
+
+As shown in \texttt{dataloader.py}, the 32D datasets are generated by linearly projecting 2D data using a matrix $P \in \mathbb{R}^{32 \times 2}$. This means the intrinsic rank of the data is only 2, even though it lives in 32-dimensional space.
+
+Because of this, $x$-prediction succeeds at high $D$ — its target $x$ lies on a 2D manifold, so the model only needs to learn a low-rank structure regardless of how large $D$ is. The complexity of the target does not grow with $D$.
+
+In contrast, $v$-prediction must learn $v = \varepsilon - x$, where $\varepsilon \sim \mathcal{N}(0, I_D)$ is Gaussian noise that spreads across all $D$ dimensions. The noise term dominates and forces the model to learn a full 32D target, even though the underlying data is only 2D. This is why $v$-prediction fails as $D$ grows.
+
+% =============================================================================
+\section{Part 3 – Can We Rescue v-Prediction? (25 marks)}
+% =============================================================================
+
+From Part 2, v-prediction fails at high dimensions because the data lives on a 2D manifold
+but the noise $\varepsilon \sim \mathcal{N}(0, I_D)$ is generated in all $D=32$ dimensions.
+The noise therefore dominates the velocity target $v = \varepsilon - x$, making it a full-rank
+$D$-dimensional function that a small model cannot represent.
+Consistent with RAE Section 4.1, which states that model width must exceed the token dimension
+for convergence, the proposed solution is to increase model capacity via:
+\begin{enumerate}
+  \item Increasing the number of hidden units (256 $\to$ 512).
+  \item Increasing the number of training iterations (25K $\to$ 100K).
+\end{enumerate}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part3_rescue.png}
+  \caption{Part 3 – Rescue attempts for v-prediction on \texttt{swiss\_roll}
+  at $D=32$.}
+  \label{fig:part3}
+\end{figure}
+
+\subsection{Questions}
+
+\textbf{Q1 (2 marks).}
+Based on your experiments, is v-prediction's failure fundamental or can it be
+overcome?  Do your findings support or contradict your observations from Part 2?
+
+V-prediction's failure is \textbf{not fundamental}. As observed in Part 2, $v = \varepsilon - x$ 
+has full rank $D$, forcing the model to learn a full 32-dimensional function --- unlike $x$-prediction 
+whose target stays rank-2 regardless of $D$. 
+% Consistent with RAE Section 4.1, increasing model 
+% capacity (hidden size 512 or 100K training steps) successfully rescues v-prediction. With sufficient 
+% capacity, the model can learn the full complexity of the noise-dominated velocity field in high dimensions 
+% ($D=32$), confirming the failure is a capacity challenge, not an inherent limitation of the parameterization.
+
+\textbf{Q2 (3 marks).}
+What approach(es) did you try?  Compare the compute cost between your approach
+and the default x-prediction setup to achieve similar sample quality at $D=32$.
+
+Two approaches successfully rescued v-prediction on \texttt{swiss\_roll} at $D=32$: 
+increasing hidden size from 256 to 512, and extending training from 25K to 100K steps. 
+
+Both successful approaches come at a significant compute cost compared to default x-prediction. The wider model increases parameter count from $\sim$313K to $\sim$1.15M ($\approx 3.7\times$ more), while the longer run requires $4\times$ more training steps. By contrast, x-prediction achieves good quality with the default 256-hidden, 25K-step setup --- making it substantially more compute-efficient at high dimensions.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part3_q3_comparison.png}
+  \caption{Part 3 Q3 – v-prediction (top, red) vs.\ x-prediction (bottom, blue) response to
+  capacity changes on \texttt{swiss\_roll} at $D=32$.}
+  \label{fig:part3_q3}
+\end{figure}
+
+\textbf{Q3 (3 marks).}
+Compare how x-prediction and v-prediction respond to your changes.  Do they
+behave the same way?  Explain why or why not, considering what each
+parameterisation must learn as a function of the ambient dimension $D$.
+
+No. x-prediction is insensitive to capacity increases: the baseline already produces clean samples,
+and wider or longer training changes nothing meaningful. This is because its target $x$ lies on a
+rank-2 manifold regardless of $D$, so the default model has sufficient capacity.
+v-prediction, by contrast, improves significantly with more capacity — because its target
+$v = \varepsilon - x$ has full rank $D$, requiring a larger model to represent the more complex function.
+
+% More precisely, x-prediction must learn $\hat{x}(z_t, t)$ whose output always lies on the 2D data
+% manifold: complexity is \emph{constant}, independent of $D$.
+% v-prediction must learn $\hat{v}(z_t, t) = \varepsilon - x$; since $\varepsilon \sim \mathcal{N}(0,
+% I_D)$ fills all $D$ dimensions, the output complexity \emph{grows with $D$}.
+% At $D=32$, the model must represent a full 32-dimensional function even though the data is only 2D
+% — which is why extra capacity is necessary for v-prediction but redundant for x-prediction.
+
+\textbf{Q4 (7 marks).}
+In practice, v-prediction is used successfully in real image generation systems
+such as Stable Diffusion 3 and FLUX.  Why might the situation be different for
+those models compared to these toy datasets?
+
+Based on Q2, $v$-prediction struggles because the target $v = \varepsilon - x$ is dominated by full-rank Gaussian noise, forcing the model to learn across all $D$ dimensions even though the actual data structure is low-rank. In real models like SD3/FLUX, this is not an issue because diffusion happens in a structured latent space produced by a pretrained encoder (e.g., DINOv2). The encoder compresses the input into a semantically rich representation with much lower effective rank, so the noise added during diffusion does not span the full ambient dimension. This makes $v$-prediction tractable even at high dimensions.
+
+% =============================================================================
+\section{Part 4 – One-Step Generation (31 marks)}
+% =============================================================================
+
+\subsection{Sampling Efficiency (3 marks)}
+
+Using the best model from Part 2 ($x$-prediction, $v$-loss, $D=32$), we
+evaluate how sample quality degrades as the number of Euler integration steps
+decreases ($1, 2, 5, 10, 20, 50, 100, 200$ steps) across all three datasets.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_efficiency_swiss_roll.png}
+  \caption{Part 4.1 – Sampling efficiency on \texttt{swiss\_roll} ($D=32$,
+  $x$-prediction).}
+  \label{fig:part4_eff_swiss}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_efficiency_gaussians.png}
+  \caption{Part 4.1 – Sampling efficiency on \texttt{gaussians} ($D=32$,
+  $x$-prediction).}
+  \label{fig:part4_eff_gauss}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_efficiency_circles.png}
+  \caption{Part 4.1 – Sampling efficiency on \texttt{circles} ($D=32$,
+  $x$-prediction).}
+  \label{fig:part4_eff_circles}
+\end{figure}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{MeanFlow (9 marks)}
+
+\textbf{Architecture.}
+The MeanFlow model $u(z, t, h)$ extends the base MLP with an additional
+sinusoidal embedding for the horizon $h = t - r$.  The input becomes
+$[z_t;\, e_t;\, e_h] \in \mathbb{R}^{D+256}$, where $e_t, e_h \in
+\mathbb{R}^{128}$ use separate embedding parameters.
+
+\textbf{Training objective.}
+We use $x$-prediction with $v$-loss (the best parameterization from Part 2):
+the model $u_\theta(z, t, h)$ outputs an estimate of the clean data $\hat{x}$,
+and the predicted velocity is $\hat{v} = (z_t - \hat{x})/t$. Training samples
+$(t, r)$ are drawn jointly with $h = t - r$. With probability
+$\texttt{fm\_ratio} = 0.7$ we set $r = t$ (so $h = 0$), giving standard
+flow matching:
+\[
+  \mathcal{L}_{\text{FM}} = \mathbb{E}\bigl[\|\hat{v}(z_t, t, 0) - v_{gt}\|^2\bigr],
+  \qquad v_{gt} = \varepsilon - x.
+\]
+With probability $0.3$ we use $h > 0$ and apply the MeanFlow consistency loss:
+\[
+  \mathcal{L}_{\text{MF}} = \mathbb{E}\bigl[\,\|\hat{v}(z_t, t, h) -
+    \text{sg}\bigl(v_{gt} - h \cdot \tfrac{du}{dt}\bigr)\|^2\,\bigr]
+\]
+where the total derivative along the flow,
+\[
+  \frac{du}{dt} = \frac{\partial u}{\partial z}\cdot v_{gt}
+                + \frac{\partial u}{\partial t},
+\]
+is computed in a single forward-mode sweep via \texttt{torch.func.jvp}, and
+$\text{sg}(\cdot)$ denotes stop-gradient. Note that for $h=0$ samples the
+$h \cdot du/dt$ term vanishes, so the formula naturally reduces to the
+flow-matching anchor target $v_{gt}$ --- meaning a single masked formulation
+covers both regimes.
+
+\textbf{Sampling.}
+\[
+  z_{t-h} = z_t - h \cdot u(z_t,\, t,\, h)
+\]
+For single-step generation: $z_0 = z_1 - 1 \cdot u(z_1, 1, 1)$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_meanflow.png}
+  \caption{Part 4.2 – MeanFlow samples on all three datasets at $D=32$:
+  ground truth alongside $1$, $2$, $5$-step generation. Trained with
+  $x$-pred + $v$-loss, $\texttt{fm\_ratio}=0.7$, $\texttt{hidden}=256$,
+  $25\,000$ steps.}
+  \label{fig:part4_mf_grid}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_comparison_swiss_roll.png}
+  \caption{Part 4.2 – Side-by-side: standard flow matching ($x$-pred from
+  Part 2) vs.\ MeanFlow on \texttt{swiss\_roll} ($D=32$), at $1, 2, 5$ steps.}
+  \label{fig:part4_cmp_swiss}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_comparison_gaussians.png}
+  \caption{Part 4.2 – Side-by-side: standard flow matching vs.\ MeanFlow on
+  \texttt{gaussians} ($D=32$), at $1, 2, 5$ steps.}
+  \label{fig:part4_cmp_gauss}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{figures/part4_comparison_circles.png}
+  \caption{Part 4.2 – Side-by-side: standard flow matching vs.\ MeanFlow on
+  \texttt{circles} ($D=32$), at $1, 2, 5$ steps.}
+  \label{fig:part4_cmp_circles}
+\end{figure}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\subsection{Questions}
+
+\textbf{Q1 (2 marks).}
+Why did you choose this prediction type for MeanFlow?
+Connect your answer to your findings from Part 2.
+
+The $x$-prediction is chosen because its target lies on a rank-2 manifold
+regardless of $D$, as established in Part 2. MeanFlow requires computing
+$u_{\text{tgt}}$ via a self-referential JVP; with $x$-prediction the
+model output is low-rank and well-conditioned, producing stable and
+consistent targets throughout training.
+
+\textbf{Q2 (4 marks).}
+In your own words, describe the core idea behind MeanFlow.  What does the
+model learn that is different from standard flow matching?  Why does this
+enable one-step generation?
+
+Standard flow matching trains a model to predict the instantaneous
+velocity $v(z_t, t)$ at a single timestep $t$. Meanwhile, MeanFlow trains
+the model to predict the \textit{mean velocity} $u(z_t, t, h)$ — the
+average velocity over a finite horizon $h = t - r$. Because the model
+directly learns how to move from $z_t$ to $z_r$ in one step via
+$z_r = z_t - h \cdot u$, it does not need to integrate many small
+Euler steps. Setting $t=1$, $r=0$, and $h=1$ at inference gives
+one-step generation: $z_0 = z_1 - u(z_1, 1, 1)$, jumping directly
+from pure noise to data in a single forward pass.
+
+\textbf{Q3 (3 marks).}
+MeanFlow splits training between $h=0$ (standard flow matching) and $h>0$
+(mean velocity).  Why is the $h=0$ portion needed?
+
+The $h=0$ portion is needed because the consistency target
+$u_{\text{tgt}} = v_{\text{gt}} - h \cdot \dfrac{du}{dt}$ depends on
+the model itself through the JVP. This means the target changes as the
+model updates, so there is no fixed ground truth for the model to
+learn from. When $h=0$, the target simply becomes $v_{\text{gt}}$,
+which is a true ground truth independent of the model. This gives
+the training a stable reference point, so the $h>0$ consistency
+loss has something reliable to build on.
+
+
+\textbf{Q4 (3 marks).}
+Compare the training cost of MeanFlow to standard flow matching.  Why is
+MeanFlow harder to train?  What is the computational overhead of the JVP
+operation per training step?
+
+Standard flow matching requires one forward pass to compute the
+prediction, one loss computation against $v_{\text{gt}}$, and one
+backward pass. MeanFlow requires an additional JVP computation per
+step, which itself consists of two forward passes: one for the primal
+output $u$ and one for the tangent output $\frac{du}{dt}$. The total
+derivative $\frac{du}{dt} = \frac{\partial u}{\partial z} \cdot
+v_{\text{gt}} + \frac{\partial u}{\partial t}$ is then used to
+construct the consistency target $u_{\text{tgt}} = v_{\text{gt}} -
+h \cdot \frac{du}{dt}$. The overhead of the JVP is approximately two
+additional forward passes per step, making MeanFlow roughly $2\times$
+more expensive per training step compared to standard flow matching.
+
+\textbf{Q5 (7 marks).}
+Compare the MeanFlow-generated samples against the ground truth across all
+three datasets.  Do you observe any differences or artefacts, particularly on
+the \texttt{gaussians} dataset?  Describe what you see and explain why it
+occurs (or why it does not).
+
+\texttt{swiss\_roll} is the cleanest across all step counts. Because
+the distribution is continuous, the average velocity consistently
+points along the spiral — there is no empty space to get lost in.
+
+\texttt{circles} falls in between — the ring recovers well at 2--5
+steps with mild scatter at 1 step, as the ring is mostly continuous
+but has some empty interior.
+
+\texttt{gaussians} shows the most artifacts, with scatter appearing
+between modes at low step counts. Because the distribution is
+multimodal with empty space between modes, the model learns an
+average velocity that can point in the wrong direction for samples
+that start between modes, causing them to land in the gaps rather
+than on a mode.
+
+% =============================================================================
+\end{document}
